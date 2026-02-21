@@ -24,6 +24,8 @@ docker compose up -d
 
 Structurizr se recharge automatiquement à chaque sauvegarde de fichier.
 
+**Note :** Vous pouvez également consulter la documentation complète du projet (fichiers Markdown) directement depuis l'interface web de Structurizr sous l'onglet "Documentation".
+
 ## Vues disponibles
 
 | Vue | Type | Description |
