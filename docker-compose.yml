@@ -1,0 +1,23 @@
+version: '3'
+services:
+  structurizr-lite:
+    image: structurizr/lite
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/usr/local/structurizr
+    environment:
+      - STRUCTURIZR_WORKSPACE_FILENAME=workspace
+    depends_on:
+      plantuml:
+        condition: service_healthy
+
+  plantuml:
+    image: plantuml/plantuml-server:jetty
+    ports:
+      - "8888:8080"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5

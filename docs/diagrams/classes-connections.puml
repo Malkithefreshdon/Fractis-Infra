@@ -1,0 +1,227 @@
+@startuml classes-connections
+
+' ============================================================
+' FRACTIS — Level 4 : Connexions & Supervision
+' Classes détaillées : Connection, Requests, Parent Updates,
+' Emails, Audit
+' ============================================================
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle Bold
+skinparam backgroundColor #FAFAFA
+skinparam packageStyle frame
+
+skinparam class {
+    BackgroundColor #EEF2FF
+    BorderColor #4F46E5
+    ArrowColor #4F46E5
+    FontSize 11
+}
+
+skinparam enum {
+    BackgroundColor #FEF3C7
+    BorderColor #D97706
+}
+
+' --- Stubs externes ---
+class User <<External>> {
+    + id : UUID
+    + prenom : String
+    + email : String
+}
+
+package "Connexions & Supervision" {
+
+    class Connection <<Entity>> {
+        + id : UUID <<PK>>
+        + supervisor_id : UUID <<FK>>
+        + eleve_id : UUID <<FK>>
+        + type : ConnectionType
+        + statut : ConnectionStatus
+        + date_debut : DateTime
+        + date_fin : DateTime {nullable}
+        + duree_mois : Integer = 3
+        + detail_transmis : List<DetailType>
+        + is_edu : Boolean = false
+        + refusable : Boolean = true
+        + consent_version : String
+        + consent_timestamp : DateTime
+        --
+        + accepter() : void
+        + refuser() : void
+        + renouveler(duree: Integer) : void
+        + terminer() : void
+        + isActive() : Boolean
+        + isExpiringSoon(jours: Integer) : Boolean
+        + getJoursRestants() : Integer
+    }
+
+    enum ConnectionType {
+        SUPERVISEUR_PROF
+        SUPERVISEUR_TUTEUR
+        PARENT
+    }
+
+    enum ConnectionStatus {
+        EN_ATTENTE
+        ACTIVE
+        EXPIREE
+        REFUSEE
+        TERMINEE
+        RENOUVELLEMENT_EN_ATTENTE
+    }
+
+    enum DetailType {
+        COMPETENCES
+        FORCES_FAIBLESSES
+        ARBRES_OBJECTIFS
+        CASIER_PARTAGE
+        PROGRESSION
+        AVANCEES_SIGNIFICATIVES
+    }
+
+    class ConnectionRequest <<Entity>> {
+        + id : UUID <<PK>>
+        + connection_id : UUID <<FK>>
+        + supervisor_id : UUID <<FK>>
+        + eleve_id : UUID <<FK>>
+        + methode : RequestMethode
+        + date_envoi : DateTime
+        + date_reponse : DateTime {nullable}
+        + message_consent : String
+        + detail_propose : List<DetailType>
+        + token : String {nullable, unique}
+        + is_processed : Boolean = false
+        --
+        + envoyer() : void
+        + genererToken() : String
+        + genererQR() : Bytes
+        + genererLien() : String
+        + isExpired() : Boolean
+    }
+
+    enum RequestMethode {
+        EMAIL
+        QR_CODE
+        LIEN
+        AUTO_GAR
+        AUTO_WORKSPACE
+        INVITE_DIRECT
+    }
+
+    class ParentUpdate <<Entity>> {
+        + id : UUID <<PK>>
+        + connection_id : UUID <<FK>>
+        + eleve_id : UUID <<FK>>
+        + parent_email : String
+        + trigger : UpdateTrigger
+        + contenu_resume : String
+        + chiffre_cle : String
+        + date_creation : DateTime
+        + date_envoi : DateTime {nullable}
+        + email_envoye : Boolean = false
+        + consent_verifie : Boolean = false
+        + is_queued : Boolean = false
+        --
+        + envoyer() : void
+        + queue() : void
+        + verifierConsent() : Boolean
+        + genererEmail() : EmailTemplate
+    }
+
+    enum UpdateTrigger {
+        COMPETENCE_VALIDEE
+        CHAPITRE_FINI
+        STREAK_MILESTONE
+        CONTROLE_REUSSI
+    }
+
+    class EmailTemplate <<ValueObject>> {
+        + sujet : String
+        + corps_html : String
+        + eleve_prenom : String
+        + lien_detail : String
+        + lien_desabonnement : String
+        + lien_gestion_connexion : String
+        + token_temporaire : String
+        + token_expiration : DateTime
+        --
+        + render() : String
+        + getSecureDetailUrl() : String
+    }
+
+    class ConnectionAuditEntry <<Entity>> {
+        + id : UUID <<PK>>
+        + connection_id : UUID <<FK>>
+        + action : AuditAction
+        + actor_id : UUID <<FK>>
+        + actor_type : String
+        + timestamp : DateTime
+        + details_json : JSON
+        + consent_version : String {nullable}
+        --
+        + toCSV() : String
+    }
+
+    enum AuditAction {
+        DEMANDE_ENVOYEE
+        ACCEPTEE
+        REFUSEE
+        RENOUVELEE
+        TERMINEE
+        EXPIREE_AUTO
+        DATA_ACCEDEE
+        CASIER_PARTAGE
+        ARBRE_ENVOYE
+    }
+
+    class ParentUpdateConfig <<Entity>> {
+        + id : UUID <<PK>>
+        + connection_id : UUID <<FK>>
+        + eleve_id : UUID <<FK>>
+        + trigger_competence : Boolean = true
+        + trigger_chapitre : Boolean = true
+        + trigger_streak : Boolean = true
+        + trigger_controle : Boolean = true
+        + email_actif : Boolean = true
+        --
+        + isTriggered(trigger: UpdateTrigger) : Boolean
+        + toggleTrigger(trigger: UpdateTrigger) : void
+    }
+}
+
+' --- Relations ---
+Connection "0..*" -- "1" User : superviseur (from) >
+Connection "0..*" -- "1" User : élève (to) >
+Connection "1" -- "1" ConnectionType
+Connection "1" -- "1" ConnectionStatus
+Connection "1" -- "0..1" ConnectionRequest : initiée par >
+Connection "1" -- "0..*" ParentUpdate : déclenche >
+Connection "1" -- "0..*" ConnectionAuditEntry : audité >
+Connection "1" -- "0..1" ParentUpdateConfig : config >
+ConnectionRequest "1" -- "1" RequestMethode
+ParentUpdate "1" -- "1" UpdateTrigger
+ParentUpdate "1" -- "0..1" EmailTemplate : génère >
+ConnectionAuditEntry "1" -- "1" AuditAction
+
+note right of Connection
+  Edu (is_edu=true) :
+  auto-connexion non-refusable.
+  Se termine si l'élève quitte
+  l'école ou si licence expire.
+end note
+
+note right of ParentUpdate
+  Visible uniquement si
+  adult_learner = false.
+  Queue offline → envoi à la sync. 
+  Consent vérifié avant envoi.
+end note
+
+note right of ConnectionAuditEntry
+  Audit trail complet pour
+  conformité RGPD.
+  Export CSV par l'admin.
+end note
+
+@enduml

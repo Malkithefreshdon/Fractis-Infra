@@ -1,0 +1,229 @@
+@startuml classes-organization
+
+' ============================================================
+' FRACTIS — Level 4 : Organisation & Affiliation
+' Classes détaillées : Organization, Membership, Workspace,
+' Licence, Abonnement, School Codes
+' ============================================================
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle Bold
+skinparam backgroundColor #FAFAFA
+skinparam packageStyle frame
+
+skinparam class {
+    BackgroundColor #EEF2FF
+    BorderColor #4F46E5
+    ArrowColor #4F46E5
+    FontSize 11
+}
+
+skinparam enum {
+    BackgroundColor #FEF3C7
+    BorderColor #D97706
+}
+
+package "Organisation & Affiliation" {
+
+    class Organization <<Entity>> {
+        + id : UUID <<PK>>
+        + nom : String
+        + type : OrganizationType
+        + uai : String {nullable, unique}
+        + licence_model : LicenceModel
+        + label_type : String = "Mon École"
+        + master_school_code : String <<unique>>
+        + school_code : String <<unique>>
+        + date_creation : DateTime
+        + domaine_email : String {nullable}
+        + is_gar_provisioned : Boolean = false
+        --
+        + provisionner(data: Map) : void
+        + rotationMSC() : String
+        + rotationSchoolCode() : String
+        + getQuotaUtilise() : Integer
+        + getNbActifsMois() : Integer
+        + getMontantDu() : Decimal
+        + getLabelAffiche() : String
+    }
+
+    enum OrganizationType {
+        LYCEE
+        COLLEGE
+        PRIVE_SCOLAIRE
+        COURS_DU_SOIR
+        SOUTIEN_SCOLAIRE
+        PREPA
+        ORGANISME_FORMATION
+        AUTRE
+    }
+
+    enum LicenceModel {
+        QUOTA_FIXE
+        PER_ACTIVE_STUDENT
+    }
+
+    class Licence <<Entity>> {
+        + id : UUID <<PK>>
+        + organization_id : UUID <<FK>>
+        + modele : LicenceModel
+        + quota_max : Integer {nullable}
+        + quota_utilise : Integer = 0
+        + date_debut : Date
+        + date_expiration : Date {nullable}
+        + nb_actifs_mois : Integer {nullable}
+        + montant_unitaire : Decimal {nullable}
+        + montant_mensuel : Decimal {nullable}
+        + statut : LicenceStatus
+        --
+        + verifierQuota() : Boolean
+        + consommerSiege() : Boolean
+        + libererSiege() : void
+        + isExpired() : Boolean
+        + switchAllFreemium() : void
+        + calculerMontantMensuel() : Decimal
+    }
+
+    enum LicenceStatus {
+        ACTIVE
+        EXPIREE
+        IMPAYEE
+        SUSPENDUE
+    }
+
+    class Membership <<Entity>> {
+        + id : UUID <<PK>>
+        + user_id : UUID <<FK>>
+        + organization_id : UUID <<FK>>
+        + type : MembershipType
+        + date_entree : DateTime
+        + date_expiration : Date {nullable}
+        + methode : MembershipMethode
+        + is_active : Boolean = true
+        + workspace_id : UUID {nullable, FK}
+        --
+        + revoquer() : void
+        + renouveler(duree: Integer) : void
+        + isExpired() : Boolean
+        + grantPremium() : void
+        + revokePremium() : void
+    }
+
+    enum MembershipType {
+        PREMIUM_SOLO
+        EDU
+        SUPERVISOR
+    }
+
+    enum MembershipMethode {
+        SCHOOL_CODE
+        GAR
+        WORKSPACE
+        MASTER_SCHOOL_CODE
+    }
+
+    class Workspace <<Entity>> {
+        + id : UUID <<PK>>
+        + supervisor_id : UUID <<FK>>
+        + organization_id : UUID {nullable, FK}
+        + nom : String
+        + icone : String
+        + status : WorkspaceStatus
+        + is_edu : Boolean = false
+        + date_creation : DateTime
+        + is_archived : Boolean = false
+        --
+        + rattacherOrganization(orgId: UUID) : void
+        + detacher() : void
+        + archiver() : void
+        + restaurer() : void
+        + getProgressionMoyenne() : Float
+        + getElevesCount() : Integer
+        + addEleve(userId: UUID) : Membership
+        + removeEleve(userId: UUID) : void
+        + transitionToLicensed() : void
+    }
+
+    enum WorkspaceStatus {
+        FREE
+        LICENSED
+        ARCHIVED
+    }
+
+    class Abonnement <<Entity>> {
+        + id : UUID <<PK>>
+        + user_id : UUID <<FK>>
+        + tier : SaaSTier
+        + date_debut : Date
+        + date_fin : Date {nullable}
+        + stripe_subscription_id : String {nullable}
+        + stripe_customer_id : String {nullable}
+        + is_trial : Boolean = false
+        + trial_end : Date {nullable}
+        + statut : AbonnementStatus
+        --
+        + upgrade(newTier: SaaSTier) : void
+        + downgrade(newTier: SaaSTier) : void
+        + annuler() : void
+        + isActive() : Boolean
+        + getWorkspaceLimit() : Integer
+    }
+
+    enum SaaSTier {
+        ESSAI
+        FONDATION
+        PRO
+        ILLIMITE
+    }
+
+    enum AbonnementStatus {
+        ACTIF
+        ANNULE
+        EXPIRE
+        EN_ATTENTE_PAIEMENT
+    }
+}
+
+' --- Interfaces externes (stubs) ---
+class User <<External>> {
+    + id : UUID
+}
+
+' --- Relations ---
+Organization "1" -- "1" Licence : possède >
+Organization "1" -- "1" OrganizationType
+Organization "1" -- "1" LicenceModel
+Licence "1" -- "1" LicenceStatus
+Membership "0..*" -- "1" Organization : rattaché à >
+Membership "0..*" -- "1" User : affilié à >
+Membership "1" -- "1" MembershipType
+Membership "1" -- "1" MembershipMethode
+Membership "0..*" -- "0..1" Workspace : via >
+Workspace "0..*" -- "0..1" Organization : rattaché à >
+Workspace "0..*" -- "1" User : créé par (supervisor) >
+Workspace "1" -- "1" WorkspaceStatus
+Workspace "1" -- "0..*" User : contient élèves >
+Abonnement "0..1" -- "1" User : souscrit par >
+Abonnement "1" -- "1" SaaSTier
+Abonnement "1" -- "1" AbonnementStatus
+
+note right of Organization
+  Provisionnée par Admin (hors-GAR)
+  ou auto-créée via GAR (UAI = clé).
+  Deux modèles de licence :
+  quota_fixe ou per_active_student.
+end note
+
+note right of Membership
+  Type premium_solo : élève + School Code
+  Type edu : élève via Workspace/GAR
+  Type supervisor : prof via MSC
+end note
+
+note right of Workspace
+  Free → Licensed : simple changement
+  de statut quand rattaché à une Org.
+  Pas de recréation de compte.
+end note
+
+@enduml

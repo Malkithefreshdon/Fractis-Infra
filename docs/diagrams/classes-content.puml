@@ -1,0 +1,232 @@
+@startuml classes-content
+
+' ============================================================
+' FRACTIS — Level 4 : Contenu Pédagogique
+' Classes détaillées : Course, Chapter, Capsule, Section,
+' Block, Recommandations
+' ============================================================
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle Bold
+skinparam backgroundColor #FAFAFA
+skinparam packageStyle frame
+
+skinparam class {
+    BackgroundColor #EEF2FF
+    BorderColor #4F46E5
+    ArrowColor #4F46E5
+    FontSize 11
+}
+
+skinparam enum {
+    BackgroundColor #FEF3C7
+    BorderColor #D97706
+}
+
+package "Contenu Pédagogique" {
+
+    class Course <<Entity>> {
+        + id : UUID <<PK>>
+        + titre : String
+        + description : String
+        + matiere : String
+        + code_couleur : String
+        + iconographie : String
+        + miniature_url : String
+        + ordre : Integer
+        + is_published : Boolean = true
+        + date_creation : DateTime
+        --
+        + getChapters() : List<Chapter>
+        + getChapterCount() : Integer
+    }
+
+    class Chapter <<Entity>> {
+        + id : UUID <<PK>>
+        + course_id : UUID <<FK>>
+        + titre : String
+        + ordre : Integer
+        + pipeline1_generated : Boolean = true
+        + date_generation : DateTime
+        --
+        + getCapsules() : List<Capsule>
+        + getCapsuleCount() : Integer
+        + hasControle() : Boolean
+    }
+
+    class Capsule <<Entity>> {
+        + id : UUID <<PK>>
+        + chapter_id : UUID <<FK>>
+        + titre : String
+        + type : CapsuleType
+        + ordre : Integer
+        + duree_estimee : Integer
+        + sections_json : JSON
+        + is_online_only : Boolean = false
+        + shareable : Boolean = true
+        + is_published : Boolean = true
+        + version : Integer = 1
+        + date_generation : DateTime
+        + pipeline2_job_id : UUID {nullable, FK}
+        --
+        + getSections() : List<Section>
+        + genererLienPartage() : ShareLink
+        + isControle() : Boolean
+        + isTraining() : Boolean
+        + isLecon() : Boolean
+        + regenerer() : Job
+    }
+
+    enum CapsuleType {
+        LECON
+        TRAINING
+        CONTROLE
+    }
+
+    class Section <<Entity>> {
+        + id : UUID <<PK>>
+        + capsule_id : UUID <<FK>>
+        + ordre : Integer
+        + titre : String {nullable}
+        --
+        + getBlocks() : List<Block>
+        + getBlockCount() : Integer
+    }
+
+    class Block <<Entity>> {
+        + id : UUID <<PK>>
+        + section_id : UUID <<FK>>
+        + type : BlockType
+        + contenu : JSON
+        + question_texte : String {nullable}
+        + image_enonce_url : String {nullable}
+        + ordre : Integer
+        + is_adapted : Boolean = false
+        + difficulty_level : Integer {nullable}
+        --
+        + validerReponse(reponse: String) : ValidationResult
+        + getHint() : String {nullable}
+        + getWhy() : String {nullable}
+        + isInteractive() : Boolean
+        + requiresIA() : Boolean
+    }
+
+    enum BlockType {
+        TEXTE
+        TEXTE_MATH
+        DEFINITION
+        IMAGE
+        ANIMATION_LOTTIE
+        INTERACTIVE_JSON
+        QCO
+        QCM
+        INPUT_ALGO
+        I_INPUT_IA
+    }
+
+    class ValidationResult <<ValueObject>> {
+        + correct : Boolean
+        + score : Float
+        + feedback : String
+        + hint : String {nullable}
+        + why : String {nullable}
+        + competences_touchees : List<UUID>
+        --
+        + getPourcentage() : Float
+    }
+
+    class ShareLink <<ValueObject>> {
+        + token : String <<unique>>
+        + capsule_id : UUID
+        + shared_by : UUID
+        + url : String
+        + date_creation : DateTime
+        + date_expiration : DateTime
+        + nb_clics : Integer = 0
+        --
+        + getFullUrl() : String
+        + isExpired() : Boolean
+    }
+
+    class ContentRecommendation <<Entity>> {
+        + id : UUID <<PK>>
+        + supervisor_id : UUID <<FK>>
+        + capsule_id : UUID <<FK>>
+        + cible_type : CibleType
+        + cible_id : UUID
+        + message : String {nullable}
+        + date_envoi : DateTime
+        + is_read : Boolean = false
+        --
+        + envoyer() : void
+        + marquerLue() : void
+    }
+
+    enum CibleType {
+        INDIVIDUEL
+        GROUPE_WORKSPACE
+    }
+
+    class ContentFlag <<Entity>> {
+        + id : UUID <<PK>>
+        + block_id : UUID <<FK>>
+        + admin_id : UUID <<FK>>
+        + raison : String
+        + priorite : FlagPriorite
+        + statut : FlagStatus
+        + date_creation : DateTime
+        + date_resolution : DateTime {nullable}
+        --
+        + resoudre() : void
+    }
+
+    enum FlagPriorite {
+        BASSE
+        MOYENNE
+        HAUTE
+        CRITIQUE
+    }
+
+    enum FlagStatus {
+        OUVERT
+        EN_COURS
+        RESOLU
+    }
+}
+
+' --- Relations ---
+Course "1" *-- "1..*" Chapter : contient >
+Chapter "1" *-- "1..*" Capsule : contient >
+Capsule "1" *-- "1..*" Section : contient >
+Section "1" *-- "1..*" Block : contient >
+Capsule "1" -- "1" CapsuleType
+Block "1" -- "1" BlockType
+Block ..> ValidationResult : produit
+Capsule "1" -- "0..*" ShareLink : partagée via >
+ContentRecommendation "0..*" -- "1" Capsule : recommande >
+ContentRecommendation "1" -- "1" CibleType
+ContentFlag "0..*" -- "1" Block : flag sur >
+ContentFlag "1" -- "1" FlagPriorite
+ContentFlag "1" -- "1" FlagStatus
+
+note right of Chapter
+  Entité DB avec ID propre,
+  généré par Pipeline 1.
+  API : GET /courses/{id}/chapters
+end note
+
+note right of Block
+  Training : 3 non-adaptés + 2 adaptés.
+  Les blocs adaptés utilisent i-Input
+  avec vérification IA (LangChain).
+  Hint et Why affichés post-validation.
+end note
+
+note right of Capsule
+  Contrôle : remix des trainings,
+  online-only, non-sautable.
+  sections_json éditable via Monaco
+  dans l'Admin Panel (rare).
+end note
+
+@enduml

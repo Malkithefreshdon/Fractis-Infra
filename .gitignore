@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+
+# Docker
+.env
+docker-compose.override.yml
+
+# Structurizr
+.structurizr/

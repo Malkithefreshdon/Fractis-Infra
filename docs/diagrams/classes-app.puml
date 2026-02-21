@@ -1,0 +1,860 @@
+@startuml classes-app
+
+' ============================================================
+' FRACTIS — Diagramme de Classes UML Complet
+' Source : User Stories Priorité Haute uniquement
+' ============================================================
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle Bold
+skinparam backgroundColor #FAFAFA
+skinparam packageStyle frame
+
+skinparam class {
+    BackgroundColor #EEF2FF
+    BorderColor #4F46E5
+    ArrowColor #4F46E5
+    FontSize 11
+}
+
+skinparam enum {
+    BackgroundColor #FEF3C7
+    BorderColor #D97706
+}
+
+skinparam package {
+    BackgroundColor #F8FAFC
+    BorderColor #6366F1
+    FontStyle Bold
+}
+
+' ════════════════════════════════════════════════════════════
+' CLASSE CENTRALE — USER
+' Extraite des packages pour être au centre du diagramme.
+' Tous les packages gravitent autour de cette classe.
+' ════════════════════════════════════════════════════════════
+
+class User <<Central>> {
+    + id : UUID
+    + email : String
+    + prenom : String
+    + pays : String
+    + date_inscription : DateTime
+    + role : RoleType
+    --
+    + seConnecter() : AuthToken
+    + seDeconnecter() : void
+    + supprimerCompte() : void
+    + exporterDonnees() : DataExport
+}
+
+enum RoleType {
+    ELEVE
+    SUPERVISEUR
+    ADMIN
+}
+
+User "1" -- "1" RoleType
+
+' ════════════════════════════════════════════════════════════
+' PACKAGE 1 — IDENTITÉ & AUTHENTIFICATION  (haut-gauche)
+' US : Onboarding, Auth B2C/GAR, Account Linking, Handicap
+' ════════════════════════════════════════════════════════════
+package "Identité & Authentification" as pkg_identity {
+
+    class UserProfile {
+        + id : UUID
+        + adult_learner : Boolean
+        + age : Integer {nullable}
+        + niveau_scolaire : String {nullable}
+        + domaine_professionnel : String {nullable}
+        + objectifs : List<String>
+        + echeance : Date {nullable}
+        + metier_cible : String {nullable}
+        + handicap : List<HandicapType>
+        + comment_connu : String
+        + onboarding_complete : Boolean
+        --
+        + updateProfil() : void
+    }
+
+    enum HandicapType {
+        DYSLEXIE
+        AUTISME
+        SENSIBILITE_SENSORIELLE
+        AUCUN
+    }
+
+    class AccessibilitySettings {
+        + id : UUID
+        + font_dyslexie : Boolean
+        + espacement_augmente : Boolean
+        + fond_contraste : Boolean
+        + text_to_speech : Boolean
+        + animations_reduites : Boolean
+        + sons_optionnels : Boolean
+        + navigation_previsible : Boolean
+        --
+        + toggleDyslexie() : void
+        + toggleAutisme() : void
+    }
+
+    class Credential {
+        + id : UUID
+        + type : CredentialType
+        + provider : String
+        + provider_id : String {nullable}
+        + password_hash : String {nullable}
+        + two_factor_enabled : Boolean
+        --
+        + verifier() : Boolean
+    }
+
+    enum CredentialType {
+        EMAIL_PASSWORD
+        OAUTH_GOOGLE
+        OAUTH_APPLE
+        GAR_SSO
+    }
+
+    class AccountLink {
+        + id : UUID
+        + gar_id : String
+        + b2c_user_id : UUID
+        + date_liaison : DateTime
+        + statut : AccountLinkStatus
+        --
+        + fusionnerComptes() : User
+        + detecterEmailExistant() : Boolean
+    }
+
+    enum AccountLinkStatus {
+        EN_ATTENTE
+        LIE
+        REFUSE_TEMPORAIRE
+    }
+
+    class AuthToken {
+        + token : String
+        + type : TokenType
+        + expiration : DateTime
+        --
+        + valider() : Boolean
+        + rafraichir() : AuthToken
+    }
+
+    enum TokenType {
+        JWT_ACCESS
+        JWT_REFRESH
+        IMPERSONATE
+        OTP
+    }
+
+    UserProfile "1" -- "0..*" HandicapType : déclare >
+}
+
+' --- Relations Identité → User ---
+User "1" -- "1" UserProfile : possède >
+User "1" -- "1..*" Credential : s'authentifie via >
+User "1" -- "0..1" AccountLink : lien GAR >
+User "1" -- "1" AccessibilitySettings : configure >
+
+' ════════════════════════════════════════════════════════════
+' PACKAGE 2 — ORGANISATION & AFFILIATION  (haut-droite)
+' US : School Code, Membership, Workspace, Provisioning,
+'      Licence, Connexion Edu Auto
+' ════════════════════════════════════════════════════════════
+package "Organisation & Affiliation" as pkg_org {
+
+    class Organization {
+        + id : UUID
+        + nom : String
+        + type : OrganizationType
+        + uai : String {nullable, unique}
+        + licence_model : LicenceModel
+        + label_type : String
+        + master_school_code : String {unique}
+        + date_creation : DateTime
+        + domaine_email : String {nullable}
+        --
+        + provisionner() : void
+        + rotationCode() : String
+        + getQuotaUtilise() : Integer
+    }
+
+    enum OrganizationType {
+        LYCEE
+        COLLEGE
+        PRIVE_SCOLAIRE
+        COURS_DU_SOIR
+        SOUTIEN_SCOLAIRE
+        PREPA
+        ORGANISME_FORMATION
+        AUTRE
+    }
+
+    enum LicenceModel {
+        QUOTA_FIXE
+        PER_ACTIVE_STUDENT
+    }
+
+    class Licence {
+        + id : UUID
+        + modele : LicenceModel
+        + quota_max : Integer {nullable}
+        + date_expiration : Date {nullable}
+        + nb_actifs_mois : Integer {nullable}
+        + montant_mensuel : Decimal {nullable}
+        + statut : LicenceStatus
+        --
+        + verifierQuota() : Boolean
+        + switchFreemium() : void
+    }
+
+    enum LicenceStatus {
+        ACTIVE
+        EXPIREE
+        IMPAYEE
+    }
+
+    class Membership {
+        + id : UUID
+        + type : MembershipType
+        + date_entree : DateTime
+        + date_expiration : Date {nullable}
+        + methode : MembershipMethode
+        + is_active : Boolean
+        --
+        + revoquer() : void
+        + renouveler() : void
+    }
+
+    enum MembershipType {
+        PREMIUM_SOLO
+        EDU
+        SUPERVISOR
+    }
+
+    enum MembershipMethode {
+        SCHOOL_CODE
+        GAR
+        WORKSPACE
+        MASTER_SCHOOL_CODE
+    }
+
+    class Workspace {
+        + id : UUID
+        + nom : String
+        + icone : String
+        + status : WorkspaceStatus
+        + is_edu : Boolean
+        + date_creation : DateTime
+        --
+        + rattacherOrganization() : void
+        + archiver() : void
+        + getProgressionMoyenne() : Float
+    }
+
+    enum WorkspaceStatus {
+        FREE
+        LICENSED
+    }
+
+    class Abonnement {
+        + id : UUID
+        + tier : SaaSTier
+        + date_debut : Date
+        + date_fin : Date {nullable}
+        + stripe_subscription_id : String
+        --
+        + upgrade() : void
+        + downgrade() : void
+        + annuler() : void
+    }
+
+    enum SaaSTier {
+        ESSAI
+        FONDATION
+        PRO
+        ILLIMITE
+    }
+
+    ' Relations internes au package
+    Organization "1" -- "1" Licence : possède >
+    Organization "1" -- "1" OrganizationType
+    Organization "1" -- "1" LicenceModel
+    Membership "0..*" -- "1" Organization : rattaché à >
+    Membership "1" -- "1" MembershipType
+    Membership "1" -- "1" MembershipMethode
+    Workspace "0..*" -- "0..1" Organization : rattaché à >
+    Workspace "1" -- "1" WorkspaceStatus
+    Abonnement "1" -- "1" SaaSTier
+}
+
+' --- Relations Organisation → User ---
+User "1" -- "0..*" Membership : affilié via >
+User "1" -- "0..*" Workspace : crée/gère >
+User "1" -- "0..1" Abonnement : souscrit >
+Workspace "1" -- "0..*" User : contient élèves >
+
+' ════════════════════════════════════════════════════════════
+' PACKAGE 3 — CONTENU PÉDAGOGIQUE  (gauche)
+' US : Liste cours, Chemin capsules, Capsules (leçon/training/
+'      contrôle), Blocs, Explorer contenus, Recommandations
+' ════════════════════════════════════════════════════════════
+package "Contenu Pédagogique" as pkg_content {
+
+    class Course {
+        + id : UUID
+        + titre : String
+        + description : String
+        + matiere : String
+        + code_couleur : String
+        + miniature_url : String
+        + ordre : Integer
+        --
+        + getChapters() : List<Chapter>
+    }
+
+    class Chapter {
+        + id : UUID
+        + titre : String
+        + ordre : Integer
+        + pipeline1_generated : Boolean
+        --
+        + getCapsules() : List<Capsule>
+    }
+
+    class Capsule {
+        + id : UUID
+        + titre : String
+        + type : CapsuleType
+        + ordre : Integer
+        + duree_estimee : Integer
+        + sections_json : JSON
+        + is_online_only : Boolean
+        + shareable : Boolean
+        --
+        + getSections() : List<Section>
+        + genererLienPartage() : String
+    }
+
+    enum CapsuleType {
+        LECON
+        TRAINING
+        CONTROLE
+    }
+
+    class Section {
+        + id : UUID
+        + ordre : Integer
+        --
+        + getBlocks() : List<Block>
+    }
+
+    class Block {
+        + id : UUID
+        + type : BlockType
+        + contenu : JSON
+        + question_texte : String {nullable}
+        + image_enonce_url : String {nullable}
+        + ordre : Integer
+        --
+        + validerReponse(reponse: String) : ValidationResult
+    }
+
+    enum BlockType {
+        TEXTE
+        TEXTE_MATH
+        DEFINITION
+        IMAGE
+        ANIMATION_LOTTIE
+        INTERACTIVE_JSON
+        QCO
+        QCM
+        INPUT_ALGO
+        I_INPUT_IA
+    }
+
+    class ValidationResult {
+        + correct : Boolean
+        + feedback : String
+        + hint : String {nullable}
+        + why : String {nullable}
+    }
+
+    class ContentRecommendation {
+        + id : UUID
+        + date_envoi : DateTime
+        + message : String {nullable}
+        + cible_type : CibleType
+        --
+        + envoyer() : void
+    }
+
+    enum CibleType {
+        INDIVIDUEL
+        GROUPE
+    }
+
+    ' Relations internes au package
+    Course "1" *-- "1..*" Chapter : contient >
+    Chapter "1" *-- "1..*" Capsule : contient >
+    Capsule "1" *-- "1..*" Section : contient >
+    Section "1" *-- "1..*" Block : contient >
+    Capsule "1" -- "1" CapsuleType
+    Block "1" -- "1" BlockType
+    Block ..> ValidationResult : produit
+    ContentRecommendation "1" -- "1" CibleType
+}
+
+' --- Relations Contenu → User ---
+ContentRecommendation "0..*" -- "1" User : envoyée par superviseur >
+ContentRecommendation "0..*" -- "1" Capsule : recommande >
+
+' ════════════════════════════════════════════════════════════
+' PACKAGE 4 — PROGRESSION & ÉVALUATION  (droite)
+' US : Reprendre capsule, Derniers cours, Feedback contrôle,
+'      Arbre compétences, Overview workspace, Analytics
+' ════════════════════════════════════════════════════════════
+package "Progression & Évaluation" as pkg_progress {
+
+    class UserProgress {
+        + id : UUID
+        + derniere_capsule_id : UUID
+        + derniere_section_idx : Integer
+        + dernier_block_idx : Integer
+        + date_derniere_activite : DateTime
+        + is_offline_cache : Boolean
+        --
+        + sauvegarderPosition() : void
+        + reprendreCapsule() : CapsuleSession
+        + syncOnline() : void
+    }
+
+    class CapsuleSession {
+        + id : UUID
+        + date_debut : DateTime
+        + date_fin : DateTime {nullable}
+        + score : Float {nullable}
+        + statut : SessionStatus
+        --
+        + terminer() : ControlFeedback
+        + abandonner() : void
+    }
+
+    enum SessionStatus {
+        EN_COURS
+        TERMINEE
+        ABANDONNEE
+    }
+
+    class RecentLesson {
+        + id : UUID
+        + date_acces : DateTime
+        + position_reprise : Integer
+    }
+
+    class Competence {
+        + id : UUID
+        + nom : String
+        + description : String
+        + niveau : CompetenceNiveau
+        + date_validation : DateTime {nullable}
+        --
+        + evaluer() : CompetenceNiveau
+    }
+
+    enum CompetenceNiveau {
+        NON_EVALUEE
+        EN_COURS
+        VALIDEE
+        MAITRISEE
+    }
+
+    class CompetenceTree {
+        + id : UUID
+        + type : TreeType
+        + date_generation : DateTime
+        + nodes_json : JSON
+        --
+        + generer() : void
+        + comparer(autre: CompetenceTree) : TreeComparison
+        + partager() : void
+    }
+
+    enum TreeType {
+        ELEVE
+        OBJECTIF
+        WORKSPACE_MOYEN
+    }
+
+    class TreeComparison {
+        + gaps : List<Competence>
+        + forces : List<Competence>
+        + faiblesses : List<Competence>
+    }
+
+    class ControlFeedback {
+        + id : UUID
+        + synthese : String
+        + ton : String
+        + competences_evaluees : List<Competence>
+        + conseils : List<String>
+        + capsules_a_revoir : List<UUID>
+        + date_generation : DateTime
+        --
+        + genererRapport() : String
+    }
+
+    class AnalyticsReport {
+        + id : UUID
+        + scope : AnalyticsScope
+        + date_generation : DateTime
+        + data_json : JSON
+        --
+        + exportPDF() : Bytes
+        + exportExcel() : Bytes
+    }
+
+    enum AnalyticsScope {
+        ELEVE
+        WORKSPACE
+        CROSS_WORKSPACE
+        ORGANISATION
+    }
+
+    ' Relations internes au package
+    UserProgress "1" -- "0..*" CapsuleSession : participe >
+    CapsuleSession "1" -- "1" SessionStatus
+    CapsuleSession "1" -- "0..1" ControlFeedback : produit >
+    Competence "1" -- "1" CompetenceNiveau
+    CompetenceTree "1" -- "1" TreeType
+    ControlFeedback "1" -- "0..*" Competence : évalue >
+    AnalyticsReport "1" -- "1" AnalyticsScope
+}
+
+' --- Relations Progression → User ---
+User "1" -- "1" UserProgress : suit >
+User "1" -- "0..*" RecentLesson : a consulté >
+User "1" -- "0..*" Competence : évaluée sur >
+User "1" -- "0..*" CompetenceTree : possède >
+RecentLesson "0..*" -- "1" Capsule : réfère >
+CapsuleSession "0..*" -- "1" Capsule : couvre >
+
+' --- Relations Progression → Workspace ---
+Workspace "1" -- "0..1" CompetenceTree : arbre moyen >
+Workspace "1" -- "0..*" AnalyticsReport : génère >
+
+' ════════════════════════════════════════════════════════════
+' PACKAGE 5 — CONNEXIONS & SUPERVISION  (bas-gauche)
+' US : Demande connexion, Connexion edu auto, Ajout parent,
+'      Updates parent, Emails parent, Audit connexions
+' ════════════════════════════════════════════════════════════
+package "Connexions & Supervision" as pkg_connections {
+
+    class Connection {
+        + id : UUID
+        + type : ConnectionType
+        + statut : ConnectionStatus
+        + date_debut : DateTime
+        + date_fin : DateTime {nullable}
+        + duree_mois : Integer
+        + detail_transmis : List<DetailType>
+        + is_edu : Boolean
+        + refusable : Boolean
+        --
+        + accepter() : void
+        + refuser() : void
+        + renouveler() : void
+        + terminer() : void
+    }
+
+    enum ConnectionType {
+        SUPERVISEUR_PROF
+        SUPERVISEUR_TUTEUR
+        PARENT
+    }
+
+    enum ConnectionStatus {
+        EN_ATTENTE
+        ACTIVE
+        EXPIREE
+        REFUSEE
+        TERMINEE
+    }
+
+    enum DetailType {
+        COMPETENCES
+        FORCES_FAIBLESSES
+        ARBRES_OBJECTIFS
+        CASIER_PARTAGE
+        PROGRESSION
+    }
+
+    class ConnectionRequest {
+        + id : UUID
+        + methode : RequestMethode
+        + date_envoi : DateTime
+        + message_consent : String
+        --
+        + envoyer() : void
+    }
+
+    enum RequestMethode {
+        EMAIL
+        QR_CODE
+        LIEN
+        AUTO_GAR
+        AUTO_WORKSPACE
+    }
+
+    class ParentUpdate {
+        + id : UUID
+        + trigger : UpdateTrigger
+        + contenu_resume : String
+        + chiffre_cle : String
+        + date_envoi : DateTime {nullable}
+        + email_envoye : Boolean
+        + consent_verifie : Boolean
+        --
+        + envoyer() : void
+        + genererEmail() : EmailTemplate
+    }
+
+    enum UpdateTrigger {
+        COMPETENCE_VALIDEE
+        CHAPITRE_FINI
+        STREAK_MILESTONE
+        CONTROLE_REUSSI
+    }
+
+    class EmailTemplate {
+        + sujet : String
+        + corps_html : String
+        + lien_detail : String
+        + lien_desabonnement : String
+        + lien_gestion_connexion : String
+        + token_temporaire : String
+    }
+
+    ' Relations internes au package
+    Connection "1" -- "1" ConnectionType
+    Connection "1" -- "1" ConnectionStatus
+    Connection "1" -- "0..1" ConnectionRequest : initiée par >
+    ConnectionRequest "1" -- "1" RequestMethode
+    Connection "1" -- "0..*" ParentUpdate : déclenche >
+    ParentUpdate "1" -- "1" UpdateTrigger
+    ParentUpdate "1" -- "0..1" EmailTemplate : génère >
+}
+
+' --- Relations Connexions → User ---
+Connection "0..*" -- "1" User : superviseur (from) >
+Connection "0..*" -- "1" User : élève (to) >
+
+' ════════════════════════════════════════════════════════════
+' PACKAGE 6 — ADAPTATION & SERVICES  (bas-droite)
+' US : Adaptation IA, Casier, Offline, Notifications,
+'      Qualité IA admin, Monitoring, RGPD
+' ════════════════════════════════════════════════════════════
+package "Adaptation & Services" as pkg_services {
+
+    class AdaptationService <<Service>> {
+        --
+        + adapterContenu(user: User, block: Block) : Block
+        + genererHint(profil: UserProfile, casier: Casier) : String
+        + genererWhy(context: JSON) : String
+        + genererDefinition(niveau: String) : String
+        + genererFeedbackControle(session: CapsuleSession) : ControlFeedback
+        + genererCommentaireFracto(user: User, heure: Time) : String
+    }
+
+    class Casier {
+        + id : UUID
+        + toggle_global : Boolean
+        --
+        + getItemsActifs() : List<CasierItem>
+        + uploadFichier(fichier: File) : CasierItem
+    }
+
+    class CasierItem {
+        + id : UUID
+        + nom_fichier : String
+        + type_fichier : FichierType
+        + source : CasierSource
+        + deposeur_id : UUID {nullable}
+        + is_actif : Boolean
+        + date_upload : DateTime
+        + date_activation_auto : DateTime {nullable}
+        + utilise_par_ia : Boolean
+        --
+        + toggleActivation() : void
+        + reEmbed() : void
+    }
+
+    enum FichierType {
+        PDF
+        PNG
+        JPG
+        TXT
+    }
+
+    enum CasierSource {
+        ELEVE
+        SUPERVISEUR
+        ONBOARDING
+    }
+
+    class Notification {
+        + id : UUID
+        + type : NotificationType
+        + titre : String
+        + message : String
+        + deep_link : String {nullable}
+        + date_creation : DateTime
+        + lue : Boolean
+        + actionnable : Boolean
+        --
+        + marquerLue() : void
+        + executerAction() : void
+    }
+
+    enum NotificationType {
+        CONNEXION_DEMANDE
+        CASIER_PARTAGE
+        RECOMMANDATION
+        UPDATE_PARENT
+        RENOUVELLEMENT
+        OFFLINE_WARNING
+        EXPIRATION_LICENCE
+    }
+
+    class OfflineCache {
+        + id : UUID
+        + capsules_cached : List<UUID>
+        + derniere_sync : DateTime
+        + is_offline : Boolean
+        --
+        + cacherCapsule(capsuleId: UUID) : void
+        + syncReconnexion() : void
+        + getContenuDisponible() : List<Capsule>
+    }
+
+    class Job {
+        + id : UUID
+        + pipeline : PipelineType
+        + statut : JobStatus
+        + capsule_id : UUID {nullable}
+        + date_debut : DateTime
+        + date_fin : DateTime {nullable}
+        + duree_execution : Integer {nullable}
+        + cout_llm : Decimal {nullable}
+        --
+        + lancer() : void
+        + relancer() : void
+    }
+
+    enum PipelineType {
+        PIPELINE_1
+        PIPELINE_2
+    }
+
+    enum JobStatus {
+        PENDING
+        RUNNING
+        COMPLETED
+        FAILED
+    }
+
+    class AuditLog {
+        + id : UUID
+        + action : String
+        + user_id : UUID
+        + cible_id : UUID {nullable}
+        + cible_type : String
+        + timestamp : DateTime
+        + details_json : JSON
+    }
+
+    class RGPDRequest {
+        + id : UUID
+        + type : RGPDType
+        + statut : RGPDStatus
+        + date_demande : DateTime
+        + date_traitement : DateTime {nullable}
+        + download_link : String {nullable}
+        + download_expiration : DateTime {nullable}
+        --
+        + traiter() : void
+        + genererExport() : DataExport
+    }
+
+    enum RGPDType {
+        EXPORT_DATA
+        SUPPRESSION_COMPTE
+        AUDIT_ACCES
+    }
+
+    enum RGPDStatus {
+        EN_ATTENTE
+        EN_COURS
+        TRAITE
+    }
+
+    class AdminDashboard <<Service>> {
+        --
+        + getDauMau() : JSON
+        + getMrrArr() : JSON
+        + getIAMetrics() : JSON
+        + getOpsMetrics() : JSON
+        + impersonate(userId: UUID) : AuthToken
+        + searchGlobal(query: String) : List<User>
+    }
+
+    class RBACPermission {
+        + id : UUID
+        + role_admin : AdminRole
+        + ressource : String
+        + action : String
+        --
+        + verifier(userId: UUID) : Boolean
+    }
+
+    enum AdminRole {
+        FULL
+        READ_ONLY
+        DEBUG
+        SUPPORT
+    }
+
+    ' Relations internes au package
+    Casier "1" *-- "0..*" CasierItem : contient >
+    CasierItem "1" -- "1" FichierType
+    CasierItem "1" -- "1" CasierSource
+    Notification "1" -- "1" NotificationType
+    Job "1" -- "1" PipelineType
+    Job "1" -- "1" JobStatus
+    RGPDRequest "1" -- "1" RGPDType
+    RGPDRequest "1" -- "1" RGPDStatus
+    RBACPermission "0..*" -- "1" AdminRole
+
+    ' Dépendances services
+    AdaptationService ..> UserProfile : utilise
+    AdaptationService ..> Casier : utilise
+    AdaptationService ..> Block : adapte
+    AdaptationService ..> ControlFeedback : génère
+}
+
+' --- Relations Services → User ---
+User "1" -- "1" Casier : possède >
+User "1" -- "0..*" Notification : reçoit >
+User "1" -- "1" OfflineCache : gère >
+User "1" -- "0..*" AuditLog : audité >
+User "1" -- "0..*" RGPDRequest : demande >
+
+' --- Relations Services → Contenu ---
+Job "0..*" -- "0..1" Capsule : cible >
+AdminDashboard ..> User : recherche
+AdminDashboard ..> AuthToken : impersonate
+
+@enduml

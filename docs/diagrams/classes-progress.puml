@@ -1,0 +1,259 @@
+@startuml classes-progress
+
+' ============================================================
+' FRACTIS — Level 4 : Progression & Évaluation
+' Classes détaillées : UserProgress, Sessions, Compétences,
+' Arbres, Feedback, Analytics
+' ============================================================
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle Bold
+skinparam backgroundColor #FAFAFA
+skinparam packageStyle frame
+
+skinparam class {
+    BackgroundColor #EEF2FF
+    BorderColor #4F46E5
+    ArrowColor #4F46E5
+    FontSize 11
+}
+
+skinparam enum {
+    BackgroundColor #FEF3C7
+    BorderColor #D97706
+}
+
+' --- Stubs externes ---
+class User <<External>> {
+    + id : UUID
+}
+
+class Capsule <<External>> {
+    + id : UUID
+    + type : CapsuleType
+}
+
+class Workspace <<External>> {
+    + id : UUID
+}
+
+package "Progression & Évaluation" {
+
+    class UserProgress <<Entity>> {
+        + id : UUID <<PK>>
+        + user_id : UUID <<FK>>
+        + derniere_capsule_id : UUID <<FK>>
+        + derniere_section_idx : Integer
+        + dernier_block_idx : Integer
+        + date_derniere_activite : DateTime
+        + is_offline_cache : Boolean = false
+        + streak_count : Integer = 0
+        + streak_last_date : Date {nullable}
+        --
+        + sauvegarderPosition(section: Int, block: Int) : void
+        + reprendreCapsule() : CapsuleSession
+        + syncOnline() : void
+        + updateStreak() : void
+        + resetStreak() : void
+    }
+
+    class CapsuleSession <<Entity>> {
+        + id : UUID <<PK>>
+        + user_id : UUID <<FK>>
+        + capsule_id : UUID <<FK>>
+        + date_debut : DateTime
+        + date_fin : DateTime {nullable}
+        + score : Float {nullable}
+        + score_max : Float {nullable}
+        + statut : SessionStatus
+        + reponses_json : JSON
+        + nb_blocs_completes : Integer = 0
+        + nb_blocs_total : Integer
+        + is_offline : Boolean = false
+        --
+        + terminer() : ControlFeedback {nullable}
+        + abandonner() : void
+        + enregistrerReponse(blockId: UUID, reponse: String) : ValidationResult
+        + getPourcentage() : Float
+        + getDuree() : Duration
+    }
+
+    enum SessionStatus {
+        EN_COURS
+        TERMINEE
+        ABANDONNEE
+        EN_PAUSE
+    }
+
+    class RecentLesson <<Entity>> {
+        + id : UUID <<PK>>
+        + user_id : UUID <<FK>>
+        + capsule_id : UUID <<FK>>
+        + date_acces : DateTime
+        + section_position : Integer
+        + block_position : Integer
+        + is_completed : Boolean = false
+        --
+        + updatePosition(section: Int, block: Int) : void
+    }
+
+    class Competence <<Entity>> {
+        + id : UUID <<PK>>
+        + nom : String
+        + description : String
+        + domaine : String
+        + code_referentiel : String {nullable}
+        + niveau : CompetenceNiveau
+        + date_premiere_eval : DateTime {nullable}
+        + date_validation : DateTime {nullable}
+        + nb_evaluations : Integer = 0
+        + score_cumule : Float = 0.0
+        --
+        + evaluer(score: Float) : CompetenceNiveau
+        + isValidee() : Boolean
+        + getScoreMoyen() : Float
+    }
+
+    enum CompetenceNiveau {
+        NON_EVALUEE
+        EN_COURS
+        VALIDEE
+        MAITRISEE
+    }
+
+    class UserCompetence <<Entity>> {
+        + id : UUID <<PK>>
+        + user_id : UUID <<FK>>
+        + competence_id : UUID <<FK>>
+        + niveau : CompetenceNiveau
+        + score : Float
+        + date_derniere_eval : DateTime
+        + historique_scores : List<Float>
+        --
+        + updateNiveau(newScore: Float) : void
+    }
+
+    class CompetenceTree <<Entity>> {
+        + id : UUID <<PK>>
+        + owner_id : UUID <<FK>>
+        + owner_type : TreeOwnerType
+        + type : TreeType
+        + nom : String {nullable}
+        + date_generation : DateTime
+        + date_modification : DateTime
+        + nodes_json : JSON
+        + is_shared : Boolean = false
+        + version : Integer = 1
+        --
+        + generer() : void
+        + regenerer() : void
+        + comparer(autre: CompetenceTree) : TreeComparison
+        + partager() : void
+        + dupliquer() : CompetenceTree
+    }
+
+    enum TreeType {
+        ELEVE
+        OBJECTIF
+        WORKSPACE_MOYEN
+    }
+
+    enum TreeOwnerType {
+        USER
+        WORKSPACE
+        SUPERVISOR
+    }
+
+    class TreeComparison <<ValueObject>> {
+        + arbre_source_id : UUID
+        + arbre_cible_id : UUID
+        + gaps : List<CompetenceGap>
+        + forces : List<UUID>
+        + faiblesses : List<UUID>
+        + couverture_pourcent : Float
+    }
+
+    class CompetenceGap <<ValueObject>> {
+        + competence_id : UUID
+        + niveau_actuel : CompetenceNiveau
+        + niveau_cible : CompetenceNiveau
+        + capsules_suggerees : List<UUID>
+    }
+
+    class ControlFeedback <<Entity>> {
+        + id : UUID <<PK>>
+        + session_id : UUID <<FK>>
+        + user_id : UUID <<FK>>
+        + synthese : String
+        + ton : String
+        + competences_evaluees : List<UUID>
+        + scores_par_competence : JSON
+        + conseils : List<String>
+        + capsules_a_revoir : List<UUID>
+        + date_generation : DateTime
+        + is_read : Boolean = false
+        --
+        + genererRapport() : String
+        + marquerLu() : void
+        + getForces() : List<Competence>
+        + getFaiblesses() : List<Competence>
+    }
+
+    class AnalyticsReport <<Entity>> {
+        + id : UUID <<PK>>
+        + scope : AnalyticsScope
+        + scope_id : UUID
+        + date_debut : Date
+        + date_fin : Date
+        + date_generation : DateTime
+        + data_json : JSON
+        + generated_by : UUID <<FK>>
+        --
+        + exportPDF() : Bytes
+        + exportExcel() : Bytes
+        + refresh() : void
+    }
+
+    enum AnalyticsScope {
+        ELEVE
+        WORKSPACE
+        CROSS_WORKSPACE
+        ORGANISATION
+    }
+}
+
+' --- Relations ---
+User "1" -- "1" UserProgress : suit >
+User "1" -- "0..*" RecentLesson : a consulté >
+User "1" -- "0..*" UserCompetence : évaluée >
+User "1" -- "0..*" CompetenceTree : possède >
+User "1" -- "0..*" CapsuleSession : sessions >
+UserProgress "1" -- "0..*" CapsuleSession : session en cours >
+CapsuleSession "0..*" -- "1" Capsule : couvre >
+CapsuleSession "1" -- "1" SessionStatus
+CapsuleSession "1" -- "0..1" ControlFeedback : produit >
+RecentLesson "0..*" -- "1" Capsule : réfère >
+UserCompetence "0..*" -- "1" Competence : évalue >
+UserCompetence "1" -- "1" CompetenceNiveau
+CompetenceTree "1" -- "1" TreeType
+CompetenceTree "1" -- "1" TreeOwnerType
+CompetenceTree ..> TreeComparison : produit
+TreeComparison "1" *-- "0..*" CompetenceGap : détaille >
+ControlFeedback "1" -- "0..*" Competence : évalue >
+AnalyticsReport "1" -- "1" AnalyticsScope
+Workspace "1" -- "0..1" CompetenceTree : arbre moyen >
+Workspace "1" -- "0..*" AnalyticsReport : rapports >
+
+note right of UserProgress
+  Sauvegarde auto de la position
+  (section/bloc) pour reprise exacte.
+  Sync online-only en MVP.
+end note
+
+note right of CompetenceTree
+  Fractal Pythagore.
+  Croissance additive par compétence.
+  Comparaison élève vs objectif.
+end note
+
+@enduml

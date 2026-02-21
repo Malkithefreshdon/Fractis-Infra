@@ -1,0 +1,209 @@
+@startuml classes-identity
+
+' ============================================================
+' FRACTIS — Level 4 : Identité & Authentification
+' Classes détaillées pour le domaine Auth/Profil/Onboarding
+' ============================================================
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle Bold
+skinparam backgroundColor #FAFAFA
+skinparam packageStyle frame
+
+skinparam class {
+    BackgroundColor #EEF2FF
+    BorderColor #4F46E5
+    ArrowColor #4F46E5
+    FontSize 11
+}
+
+skinparam enum {
+    BackgroundColor #FEF3C7
+    BorderColor #D97706
+}
+
+package "Identité & Authentification" {
+
+    class User <<Entity>> {
+        + id : UUID <<PK>>
+        + email : String <<unique>>
+        + prenom : String
+        + pays : String
+        + date_inscription : DateTime
+        + role : RoleType
+        + is_active : Boolean
+        + last_login : DateTime {nullable}
+        --
+        + seConnecter(credential: Credential) : AuthToken
+        + seDeconnecter() : void
+        + supprimerCompte() : void
+        + exporterDonnees() : DataExport
+        + changerMotDePasse(ancien: String, nouveau: String) : Boolean
+        + recupererCompte(email: String) : void
+    }
+
+    enum RoleType {
+        ELEVE
+        SUPERVISEUR
+        ADMIN
+    }
+
+    class UserProfile <<Entity>> {
+        + id : UUID <<PK>>
+        + user_id : UUID <<FK>>
+        + adult_learner : Boolean
+        + age : Integer {nullable}
+        + niveau_scolaire : String {nullable}
+        + domaine_professionnel : String {nullable}
+        + type_objectif : String {nullable}
+        + objectifs : List<String>
+        + echeance : Date {nullable}
+        + metier_cible : String {nullable}
+        + handicap : List<HandicapType>
+        + interets : List<String>
+        + comment_connu : String
+        + onboarding_complete : Boolean
+        + onboarding_step : Integer
+        --
+        + updateProfil(data: Map) : void
+        + isMineur() : Boolean
+        + getAdaptationPriority() : String
+    }
+
+    enum HandicapType {
+        DYSLEXIE
+        AUTISME
+        SENSIBILITE_SENSORIELLE
+        AUCUN
+    }
+
+    class AccessibilitySettings <<Entity>> {
+        + id : UUID <<PK>>
+        + user_id : UUID <<FK>>
+        + font_dyslexie : Boolean = false
+        + espacement_augmente : Boolean = false
+        + fond_contraste : Boolean = false
+        + text_to_speech : Boolean = false
+        + animations_reduites : Boolean = false
+        + sons_optionnels : Boolean = true
+        + navigation_previsible : Boolean = false
+        + ton_neutre : Boolean = false
+        + inputs_simplifies : Boolean = false
+        --
+        + toggleDyslexie() : void
+        + toggleAutisme() : void
+        + applyFromHandicap(types: List<HandicapType>) : void
+    }
+
+    class Credential <<Entity>> {
+        + id : UUID <<PK>>
+        + user_id : UUID <<FK>>
+        + type : CredentialType
+        + provider : String {nullable}
+        + provider_id : String {nullable}
+        + password_hash : String {nullable}
+        + salt : String {nullable}
+        + two_factor_enabled : Boolean = false
+        + two_factor_secret : String {nullable}
+        + is_primary : Boolean
+        + date_creation : DateTime
+        --
+        + verifier(input: String) : Boolean
+        + enable2FA() : String
+        + verify2FA(code: String) : Boolean
+    }
+
+    enum CredentialType {
+        EMAIL_PASSWORD
+        OAUTH_GOOGLE
+        OAUTH_APPLE
+        GAR_SSO
+    }
+
+    class AccountLink <<Entity>> {
+        + id : UUID <<PK>>
+        + gar_id : String <<unique>>
+        + b2c_user_id : UUID <<FK>>
+        + gar_email : String {nullable}
+        + uai_etablissement : String {nullable}
+        + statut : AccountLinkStatus
+        + date_liaison : DateTime {nullable}
+        + date_derniere_tentative : DateTime
+        + nb_rappels : Integer = 0
+        --
+        + fusionnerComptes() : User
+        + detecterEmailExistant(email: String) : User {nullable}
+        + envoyerRappel() : void
+        + confirmerOTP(code: String) : Boolean
+    }
+
+    enum AccountLinkStatus {
+        EN_ATTENTE
+        LIE
+        REFUSE_TEMPORAIRE
+    }
+
+    class AuthToken <<ValueObject>> {
+        + token : String
+        + type : TokenType
+        + user_id : UUID
+        + expiration : DateTime
+        + issued_at : DateTime
+        + ip_address : String {nullable}
+        --
+        + valider() : Boolean
+        + isExpired() : Boolean
+        + rafraichir() : AuthToken
+        + revoquer() : void
+    }
+
+    enum TokenType {
+        JWT_ACCESS
+        JWT_REFRESH
+        IMPERSONATE
+        OTP
+        ACCOUNT_RECOVERY
+    }
+
+    class TutorialProgress <<Entity>> {
+        + id : UUID <<PK>>
+        + user_id : UUID <<FK>>
+        + tab_home_vu : Boolean = false
+        + tab_cours_vu : Boolean = false
+        + tab_centre_vu : Boolean = false
+        + skipped : Boolean = false
+        + date_completion : DateTime {nullable}
+        --
+        + markTabVu(tab: String) : void
+        + skip() : void
+        + isComplete() : Boolean
+    }
+}
+
+' --- Relations ---
+User "1" -- "1" RoleType
+User "1" -- "1" UserProfile : possède >
+User "1" -- "1..*" Credential : authentifié via >
+User "1" -- "0..1" AccountLink : lien GAR >
+User "1" -- "1" AccessibilitySettings : configure >
+User "1" -- "1" TutorialProgress : tutoriel >
+UserProfile "1" -- "0..*" HandicapType : déclare >
+Credential "1" -- "1" CredentialType
+AccountLink "1" -- "1" AccountLinkStatus
+AuthToken "1" -- "1" TokenType
+AccessibilitySettings ..> HandicapType : applique depuis
+
+note right of User
+  Classe centrale du système.
+  L'email B2C est l'identité primaire.
+  L'ID GAR est un credential secondaire.
+end note
+
+note right of AccountLink
+  Anti-doublons : un seul User
+  par couple (gar_id, b2c_email).
+  Rappel à chaque connexion GAR
+  si non encore lié.
+end note
+
+@enduml

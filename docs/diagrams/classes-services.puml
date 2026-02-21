@@ -1,0 +1,352 @@
+@startuml classes-services
+
+' ============================================================
+' FRACTIS — Level 4 : Adaptation & Services
+' Classes détaillées : AdaptationService, Casier, Offline,
+' Notifications, Jobs, RGPD, Admin, RBAC
+' ============================================================
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle Bold
+skinparam backgroundColor #FAFAFA
+skinparam packageStyle frame
+
+skinparam class {
+    BackgroundColor #EEF2FF
+    BorderColor #4F46E5
+    ArrowColor #4F46E5
+    FontSize 11
+}
+
+skinparam enum {
+    BackgroundColor #FEF3C7
+    BorderColor #D97706
+}
+
+' --- Stubs externes ---
+class User <<External>> {
+    + id : UUID
+}
+
+class UserProfile <<External>> {
+    + id : UUID
+    + handicap : List<HandicapType>
+}
+
+class Block <<External>> {
+    + id : UUID
+    + type : BlockType
+}
+
+class Capsule <<External>> {
+    + id : UUID
+}
+
+class CapsuleSession <<External>> {
+    + id : UUID
+}
+
+package "Adaptation & Services" {
+
+    class AdaptationService <<Service>> {
+        --
+        + adapterContenu(userId: UUID, block: Block) : Block
+        + genererHint(userId: UUID, blockId: UUID) : String
+        + genererWhy(userId: UUID, blockId: UUID) : String
+        + genererDefinition(userId: UUID, terme: String) : String
+        + genererFeedbackControle(sessionId: UUID) : ControlFeedback
+        + genererCommentaireFracto(userId: UUID, heure: Time) : String
+        + genererFractFact(userId: UUID) : String
+        + evaluerReponseLibre(userId: UUID, blockId: UUID, reponse: String) : ValidationResult
+    }
+
+    class AdaptationContext <<ValueObject>> {
+        + user_id : UUID
+        + profil_mental : JSON
+        + casier_actif_ids : List<UUID>
+        + competences_recentes : List<UUID>
+        + derniere_capsule_id : UUID {nullable}
+        + historique_nav : List<UUID>
+        + heure_locale : Time
+        --
+        + getPriorite() : String
+    }
+
+    class Casier <<Entity>> {
+        + id : UUID <<PK>>
+        + user_id : UUID <<FK>>
+        + toggle_global : Boolean = true
+        + nb_items : Integer = 0
+        + taille_totale_mb : Float = 0.0
+        --
+        + getItemsActifs() : List<CasierItem>
+        + getItemsSuperviseur() : List<CasierItem>
+        + uploadFichier(fichier: File, source: CasierSource) : CasierItem
+        + getTailleRestante() : Float
+    }
+
+    class CasierItem <<Entity>> {
+        + id : UUID <<PK>>
+        + casier_id : UUID <<FK>>
+        + nom_fichier : String
+        + type_fichier : FichierType
+        + taille_mb : Float
+        + source : CasierSource
+        + deposeur_id : UUID {nullable}
+        + deposeur_nom : String {nullable}
+        + is_actif : Boolean = true
+        + date_upload : DateTime
+        + date_activation_auto : DateTime {nullable}
+        + utilise_par_ia : Boolean = false
+        + embedding_status : EmbeddingStatus = NOT_EMBEDDED
+        + vector_ids : List<String>
+        --
+        + toggleActivation() : void
+        + reEmbed() : void
+        + deleteWithVectors() : void
+        + shouldAutoActivate() : Boolean
+    }
+
+    enum FichierType {
+        PDF
+        PNG
+        JPG
+        TXT
+    }
+
+    enum CasierSource {
+        ELEVE
+        SUPERVISEUR
+        ONBOARDING
+    }
+
+    enum EmbeddingStatus {
+        NOT_EMBEDDED
+        EMBEDDING
+        EMBEDDED
+        ERROR
+    }
+
+    class Notification <<Entity>> {
+        + id : UUID <<PK>>
+        + user_id : UUID <<FK>>
+        + type : NotificationType
+        + titre : String
+        + message : String
+        + deep_link : String {nullable}
+        + date_creation : DateTime
+        + date_lecture : DateTime {nullable}
+        + lue : Boolean = false
+        + actionnable : Boolean = false
+        + action_label : String {nullable}
+        + action_payload : JSON {nullable}
+        + is_push_sent : Boolean = false
+        --
+        + marquerLue() : void
+        + executerAction() : void
+        + sendPush() : void
+    }
+
+    enum NotificationType {
+        CONNEXION_DEMANDE
+        CASIER_PARTAGE
+        RECOMMANDATION
+        UPDATE_PARENT
+        RENOUVELLEMENT
+        OFFLINE_WARNING
+        EXPIRATION_LICENCE
+        SCHOOL_CODE_VALIDE
+        ACCOUNT_LINK_RAPPEL
+    }
+
+    class OfflineCache <<Entity>> {
+        + id : UUID <<PK>>
+        + user_id : UUID <<FK>>
+        + capsules_cached : List<UUID>
+        + derniere_sync : DateTime
+        + is_offline : Boolean = false
+        + pending_progress : JSON {nullable}
+        + pending_responses : JSON {nullable}
+        + cache_size_mb : Float = 0.0
+        --
+        + cacherCapsule(capsuleId: UUID) : void
+        + evictOldest() : void
+        + syncReconnexion() : SyncResult
+        + getContenuDisponible() : List<UUID>
+        + hasPendingSync() : Boolean
+    }
+
+    class SyncResult <<ValueObject>> {
+        + nb_progress_synced : Integer
+        + nb_responses_synced : Integer
+        + conflits : List<SyncConflict>
+        + nouvelles_adaptations : Boolean
+        + date_sync : DateTime
+    }
+
+    class SyncConflict <<ValueObject>> {
+        + capsule_id : UUID
+        + champ : String
+        + valeur_locale : String
+        + valeur_serveur : String
+        + resolution : String
+    }
+
+    class Job <<Entity>> {
+        + id : UUID <<PK>>
+        + pipeline : PipelineType
+        + statut : JobStatus
+        + capsule_id : UUID {nullable, FK}
+        + course_id : UUID {nullable, FK}
+        + triggered_by : UUID <<FK>>
+        + date_debut : DateTime
+        + date_fin : DateTime {nullable}
+        + duree_execution_ms : Integer {nullable}
+        + cout_llm_usd : Decimal {nullable}
+        + error_message : String {nullable}
+        + langfuse_trace_id : String {nullable}
+        --
+        + lancer() : void
+        + relancer() : void
+        + annuler() : void
+        + isRunning() : Boolean
+        + getCoutEstime() : Decimal
+    }
+
+    enum PipelineType {
+        PIPELINE_1
+        PIPELINE_2
+    }
+
+    enum JobStatus {
+        PENDING
+        RUNNING
+        COMPLETED
+        FAILED
+        CANCELLED
+    }
+
+    class AuditLog <<Entity>> {
+        + id : UUID <<PK>>
+        + action : String
+        + user_id : UUID <<FK>>
+        + cible_id : UUID {nullable}
+        + cible_type : String
+        + timestamp : DateTime
+        + ip_address : String {nullable}
+        + details_json : JSON
+        --
+        + toCSV() : String
+    }
+
+    class RGPDRequest <<Entity>> {
+        + id : UUID <<PK>>
+        + user_id : UUID <<FK>>
+        + type : RGPDType
+        + statut : RGPDStatus
+        + date_demande : DateTime
+        + date_traitement : DateTime {nullable}
+        + treated_by : UUID {nullable, FK}
+        + download_link : String {nullable}
+        + download_expiration : DateTime {nullable}
+        + deletion_log : JSON {nullable}
+        --
+        + traiter() : void
+        + genererExport() : DataExport
+        + genererLienSecurise() : String
+        + isDownloadExpired() : Boolean
+    }
+
+    enum RGPDType {
+        EXPORT_DATA
+        SUPPRESSION_COMPTE
+        AUDIT_ACCES
+    }
+
+    enum RGPDStatus {
+        EN_ATTENTE
+        EN_COURS
+        TRAITE
+        ERREUR
+    }
+
+    class RBACPermission <<Entity>> {
+        + id : UUID <<PK>>
+        + user_id : UUID <<FK>>
+        + role_admin : AdminRole
+        + ressource : String
+        + action : String
+        + date_attribution : DateTime
+        + attribue_par : UUID <<FK>>
+        --
+        + verifier(userId: UUID, resource: String, action: String) : Boolean
+    }
+
+    enum AdminRole {
+        FULL
+        READ_ONLY
+        DEBUG
+        SUPPORT
+    }
+
+    class FeatureFlag <<Entity>> {
+        + id : UUID <<PK>>
+        + nom : String <<unique>>
+        + description : String
+        + is_active : Boolean = false
+        + rollout_pourcent : Integer = 0
+        + date_creation : DateTime
+        + date_modification : DateTime
+        --
+        + isEnabledFor(userId: UUID) : Boolean
+        + setRollout(pourcent: Integer) : void
+        + toggle() : void
+    }
+}
+
+' --- Relations ---
+User "1" -- "1" Casier : possède >
+Casier "1" *-- "0..*" CasierItem : contient >
+CasierItem "1" -- "1" FichierType
+CasierItem "1" -- "1" CasierSource
+CasierItem "1" -- "1" EmbeddingStatus
+User "1" -- "0..*" Notification : reçoit >
+Notification "1" -- "1" NotificationType
+User "1" -- "1" OfflineCache : gère >
+OfflineCache ..> SyncResult : produit
+SyncResult "1" *-- "0..*" SyncConflict : contient >
+User "1" -- "0..*" AuditLog : audité >
+User "1" -- "0..*" RGPDRequest : demande >
+RGPDRequest "1" -- "1" RGPDType
+RGPDRequest "1" -- "1" RGPDStatus
+Job "0..*" -- "0..1" Capsule : cible >
+Job "1" -- "1" PipelineType
+Job "1" -- "1" JobStatus
+RBACPermission "0..*" -- "1" AdminRole
+AdaptationService ..> AdaptationContext : utilise
+AdaptationService ..> UserProfile : lit profil
+AdaptationService ..> Casier : lit casier actif
+AdaptationService ..> Block : adapte
+
+note right of AdaptationService
+  Priorité : casier actif > profil mental.
+  No hallucinations (RAG vérifié).
+  Appliqué à : définitions, hints,
+  why, inputs libres.
+end note
+
+note right of CasierItem
+  Superviseur upload → notif élève.
+  Si pas de choix sous 48h →
+  auto-activation.
+  Re-embedding possible via admin.
+end note
+
+note right of OfflineCache
+  Cache auto capsules récentes.
+  Sync merge à la reconnexion.
+  Pas d'IA adaptative offline
+  (fallback last-known profil).
+end note
+
+@enduml
